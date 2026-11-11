@@ -1,8 +1,10 @@
+use std::io::{Cursor, Read};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use furigana4epub_core::{Furigana, Options};
 use sha2::{Digest, Sha256};
+use zip::ZipArchive;
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/japanese.epub");
 const FIXED_IDENTIFIER: &str = "https://example.com/epub?id=fixture&edition=1";
@@ -58,9 +60,38 @@ fn converts_with_all_options() -> Result<()> {
             highlight_color: Some("#2563eb"),
             new_identifier: true,
             identifier: Some(FIXED_IDENTIFIER),
+            ..Options::default()
         },
         "2d858bf774564ef45ddf534d865dcc48f62ab2ea472232dab90cc80a6898dd69",
     )
+}
+
+#[test]
+fn skips_words_from_multiple_wordlists() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, "\u{feff} 寿司 \r\n\r\n東京\r\n")?;
+    std::fs::write(&second, "食べる\n")?;
+
+    let converted = converter()?.convert_epub(
+        FIXTURE,
+        Options {
+            ignore_wordlists: &[first, second],
+            override_existing: true,
+            ..Options::default()
+        },
+    )?;
+    let mut archive = ZipArchive::new(Cursor::new(converted))?;
+    let mut chapter = String::new();
+    archive
+        .by_name("EPUB/Text/第1章.xhtml")?
+        .read_to_string(&mut chapter)?;
+
+    assert!(chapter.contains("<p>寿司を食べた。"));
+    assert!(chapter.contains("<ruby id=\"existing\">東京<rp>(</rp><rt>とうけい</rt>"));
+    assert!(chapter.contains("<ruby class=\"furigana4epub\">漢字<rt>かんじ</rt></ruby>"));
+    Ok(())
 }
 
 fn check_hash(options: Options<'_>, expected: &str) -> Result<()> {

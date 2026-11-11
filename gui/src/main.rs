@@ -1,12 +1,13 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod book;
+mod wordlists;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};
-use furigana4epub_core::{Options, download_dictionary};
+use furigana4epub_core::{Options, download_dictionary, download_jlpt_wordlists};
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon,
     button::{Button, ButtonVariants},
@@ -14,10 +15,12 @@ use gpui_kit::component::{
     h_flex,
     input::{Input, InputState},
     radio::RadioGroup,
+    scroll::ScrollableElement as _,
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use wordlists::Wordlists;
 
 #[derive(Default)]
 enum Status {
@@ -26,6 +29,7 @@ enum Status {
     UpdatingDictionary,
     DictionaryUpdated,
     ChoosingBook,
+    ChoosingWordlists,
     Converting,
     ChoosingDestination,
     Saving,
@@ -39,6 +43,7 @@ impl Status {
             self,
             Self::UpdatingDictionary
                 | Self::ChoosingBook
+                | Self::ChoosingWordlists
                 | Self::Converting
                 | Self::ChoosingDestination
                 | Self::Saving
@@ -64,13 +69,14 @@ struct Converter {
     color: Entity<InputState>,
     identifier: Identifier,
     custom_identifier: Entity<InputState>,
+    wordlists: Wordlists,
     output: Option<Arc<Vec<u8>>>,
     status: Status,
 }
 
 impl Converter {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self {
+        let mut converter = Self {
             input: None,
             override_existing: false,
             highlight: false,
@@ -78,9 +84,15 @@ impl Converter {
             identifier: Identifier::Keep,
             custom_identifier: cx
                 .new(|cx| InputState::new(window, cx).placeholder("urn:example:my-book")),
+            wordlists: Wordlists::default(),
             output: None,
             status: Status::Idle,
+        };
+        match wordlists::read_shared() {
+            Ok(shared) => converter.wordlists.replace_shared(shared),
+            Err(error) => converter.fail(error.context("Could not load shared wordlists")),
         }
+        converter
     }
 
     fn update_dictionary(&mut self, cx: &mut Context<Self>) {
@@ -90,14 +102,21 @@ impl Converter {
         self.status = Status::UpdatingDictionary;
         cx.notify();
 
-        let update = cx
-            .background_executor()
-            .spawn(async { download_dictionary() });
+        let update = cx.background_executor().spawn(async {
+            download_dictionary()?;
+            download_jlpt_wordlists()
+                .context("The dictionary was updated. Could not update the JLPT wordlists.")?;
+            wordlists::read_shared().context("Could not reload shared wordlists")
+        });
         cx.spawn(async move |this, cx| {
             let result = update.await;
             let _ = this.update(cx, |view, cx| {
                 match result {
-                    Ok(_) => view.status = Status::DictionaryUpdated,
+                    Ok(shared) => {
+                        view.wordlists.replace_shared(shared);
+                        view.output = None;
+                        view.status = Status::DictionaryUpdated;
+                    }
                     Err(error) => view.fail(error),
                 }
                 cx.notify();
@@ -151,6 +170,43 @@ impl Converter {
         .detach();
     }
 
+    fn choose_wordlists(&mut self, cx: &mut Context<Self>) {
+        if self.status.busy() {
+            return;
+        }
+        self.status = Status::ChoosingWordlists;
+        let selection = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Choose wordlist files".into()),
+        });
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let selected = selection
+                .await
+                .context("The open dialog closed unexpectedly")
+                .flatten();
+            let _ = this.update(cx, |view, cx| {
+                view.status = Status::Idle;
+                match selected {
+                    Ok(Some(paths)) => {
+                        for path in paths {
+                            if view.wordlists.add(path) {
+                                view.output = None;
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => view.fail(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn convert(&mut self, cx: &mut Context<Self>) {
         if self.status.busy() {
             return;
@@ -163,6 +219,7 @@ impl Converter {
         let color = self.color.read(cx).value();
         let identifier = self.identifier;
         let custom_identifier = self.custom_identifier.read(cx).value();
+        let ignore_wordlists = self.wordlists.ignored_paths();
 
         if identifier == Identifier::Custom && custom_identifier.trim().is_empty() {
             self.status = Status::Failed("Enter a custom EPUB identifier.".into());
@@ -185,6 +242,7 @@ impl Converter {
                     new_identifier: identifier == Identifier::Generate,
                     identifier: (identifier == Identifier::Custom)
                         .then_some(custom_identifier.trim()),
+                    ignore_wordlists: &ignore_wordlists,
                 },
             )
         });
@@ -396,6 +454,63 @@ impl Converter {
             )
     }
 
+    fn wordlist_options(&self, panel: Div, cx: &Context<Self>) -> impl IntoElement {
+        let busy = self.status.busy();
+        panel
+            .child(
+                h_flex()
+                    .justify_between()
+                    .gap_3()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Ignored wordlists"),
+                    )
+                    .child(
+                        Button::new("add-wordlists")
+                            .outline()
+                            .label("Add wordlist files…")
+                            .disabled(busy)
+                            .on_click(cx.listener(|view, _, _, cx| view.choose_wordlists(cx))),
+                    ),
+            )
+            .when(self.wordlists.is_empty(), |panel| {
+                panel.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("No wordlists available"),
+                )
+            })
+            .when(!self.wordlists.is_empty(), |panel| {
+                panel.child(
+                    v_flex()
+                        .w_full()
+                        .max_h(px(144.))
+                        .gap_2()
+                        .p_1()
+                        .overflow_y_scrollbar()
+                        .children(self.wordlists.iter().map(|(path, wordlist)| {
+                            let label = wordlist.label(path);
+                            let path_id: Arc<Path> = Arc::from(path.as_path());
+                            let tooltip = path.display().to_string();
+                            Checkbox::new(path_id.clone())
+                                .w_full()
+                                .checked(wordlist.ignored)
+                                .disabled(busy)
+                                .accessibility_label(label.clone())
+                                .tooltip(tooltip)
+                                .child(div().truncate().child(label))
+                                .on_change(cx.listener(move |view, checked, _, cx| {
+                                    view.wordlists.set_ignored(&path_id, *checked);
+                                    view.output = None;
+                                    cx.notify();
+                                }))
+                        })),
+                )
+            })
+    }
+
     fn footer(&self, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let busy = self.status.busy();
@@ -406,11 +521,15 @@ impl Converter {
             }
             Status::Idle => ("".into(), theme.muted_foreground),
             Status::UpdatingDictionary => (
-                "Downloading the Sudachi dictionary…".into(),
+                "Downloading the Sudachi dictionary and JLPT wordlists…".into(),
                 theme.muted_foreground,
             ),
-            Status::DictionaryUpdated => ("Dictionary updated.".into(), theme.foreground),
+            Status::DictionaryUpdated => (
+                "Dictionary and JLPT wordlists updated.".into(),
+                theme.foreground,
+            ),
             Status::ChoosingBook => ("Waiting for an EPUB…".into(), theme.muted_foreground),
+            Status::ChoosingWordlists => ("Waiting for wordlists…".into(), theme.muted_foreground),
             Status::Converting => ("Adding furigana…".into(), theme.muted_foreground),
             Status::ChoosingDestination => {
                 ("Choose where to save the EPUB.".into(), theme.foreground)
@@ -524,6 +643,7 @@ impl Render for Converter {
                     )
                     .child(self.book_picker(card(), cx))
                     .child(self.conversion_options(card(), cx))
+                    .child(self.wordlist_options(card(), cx))
                     .child(self.footer(cx)),
             )
     }
@@ -537,7 +657,7 @@ fn main() {
             init(cx);
             open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::centered(size(px(600.), px(545.)), cx)),
+                    window_bounds: Some(WindowBounds::centered(size(px(600.), px(715.)), cx)),
                     window_min_size: Some(size(px(460.), px(460.))),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Furigana for EPUB".into()),

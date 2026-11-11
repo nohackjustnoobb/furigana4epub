@@ -4,7 +4,9 @@ Add hiragana furigana to Japanese EPUB 3 books using Sudachi.
 
 ## GUI usage
 
-Launch the app and click **Update Dictionary** to download or refresh the shared dictionary. Choose an EPUB and set your options. Click **Convert EPUB**, then choose where to save the converted book.
+Launch the app and click **Update Dictionary** to download or refresh the shared dictionary and JLPT wordlists. Choose an EPUB and set your options. Click **Convert EPUB**, then choose where to save the converted book.
+
+Under **Ignored wordlists**, check the shared wordlists you want to use, or click **Add wordlist files…** to select custom files. The converter skips adding furigana to words in the checked lists.
 
 ### Download from GitHub Releases
 
@@ -51,20 +53,32 @@ furigana4epub --highlight-color '#2563eb' book.epub annotated.epub
 
 After a successful conversion, the CLI prints the output path, elapsed time, and settings used.
 
-Rerun the dictionary update command to refresh it. The CLI and GUI share the copy in the `furigana4epub` folder of your local user data directory.
+Rerun `update-dict` to refresh the dictionary and JLPT wordlists. The CLI and GUI share the `furigana4epub` folder in your local user data directory.
 
-To remove the shared dictionary, run `furigana4epub remove-dict`. From the repository root, you can also run `cargo run --locked -p cli -- remove-dict`.
+Repeat `--ignore-wordlist` to skip furigana for words in any of the selected lists.
+
+```sh
+furigana4epub --ignore-wordlist jlpt/n1 --ignore-wordlist jlpt/n2 --ignore-wordlist ./my-words.txt book.epub
+```
+
+To remove the shared dictionary and JLPT wordlists, run `furigana4epub remove-dict`. From the repository root, you can also run `cargo run --locked -p cli -- remove-dict`.
 
 ### Options
 
-| Option                    | Effect                                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `--dictionary <PATH>`     | Use a local Sudachi V1 dictionary in place of the shared default.                                    |
-| `--override-existing`     | Replace existing ruby when Sudachi can read its entire base. By default, existing ruby is preserved. |
-| `--highlight-injected`    | Highlight the generated furigana in the default color, `#c2410c`.                                    |
-| `--highlight-color <HEX>` | Highlight the generated furigana in a CSS hex color such as `#2563eb`.                               |
-| `--new-identifier`        | Generate a new primary EPUB identifier.                                                              |
-| `--identifier <VALUE>`    | Set the primary EPUB identifier explicitly. Takes precedence over `--new-identifier`.                |
-| `-h`, `--help`            | Show command-line help.                                                                              |
+| Option                     | Effect                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--dictionary <PATH>`      | Use a local Sudachi V1 dictionary in place of the shared default.                                    |
+| `--ignore-wordlist <LIST>` | Skip words from a shared or custom wordlist. Repeat to combine lists.                                |
+| `--override-existing`      | Replace existing ruby when Sudachi can read its entire base. By default, existing ruby is preserved. |
+| `--highlight-injected`     | Highlight the generated furigana in the default color, `#c2410c`.                                    |
+| `--highlight-color <HEX>`  | Highlight the generated furigana in a CSS hex color such as `#2563eb`.                               |
+| `--new-identifier`         | Generate a new primary EPUB identifier.                                                              |
+| `--identifier <VALUE>`     | Set the primary EPUB identifier explicitly. Takes precedence over `--new-identifier`.                |
+| `-h`, `--help`             | Show command-line help.                                                                              |
 
 The original identifier is preserved by default. Changing it requires an EPUB without encrypted or obfuscated resources.
+
+## Data sources and licenses
+
+- Sudachi Full V1 dictionary by Works Applications. [SudachiDict repository](https://github.com/WorksApplications/SudachiDict) · [Apache License 2.0](https://github.com/WorksApplications/SudachiDict/blob/develop/LICENSE-2.0.txt) · [Third-party notices](https://github.com/WorksApplications/SudachiDict/blob/develop/LEGAL)
+- JLPT vocabulary from Jamie Sinclair’s Open Anki JLPT Decks. [Open Anki JLPT Decks repository](https://github.com/jamsinclair/open-anki-jlpt-decks) · [MIT License](https://github.com/jamsinclair/open-anki-jlpt-decks/blob/main/LICENSE)

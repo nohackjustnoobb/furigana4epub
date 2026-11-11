@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Range;
 
 use anyhow::{Context, Result, ensure};
@@ -5,9 +6,8 @@ use roxmltree::Node;
 use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
 use sudachi::analysis::{Mode, Tokenize};
 use sudachi::dic::dictionary::JapaneseDictionary;
-use unicode_script::{Script, UnicodeScript};
 
-use crate::{Edit, Options, apply_edits, closing_tag, parse_xml};
+use crate::{Edit, Options, apply_edits, closing_tag, is_kanji, parse_xml};
 
 const XHTML: &str = "http://www.w3.org/1999/xhtml";
 const RUBY_CLASS: &str = "furigana4epub";
@@ -42,6 +42,7 @@ fn is_hex_color(color: &str) -> bool {
 pub(super) fn annotate(
     source: &str,
     tokenizer: &Tokenizer<'_>,
+    ignored_words: &HashSet<String>,
     override_existing: bool,
     highlight: Option<&str>,
 ) -> Result<Option<String>> {
@@ -59,6 +60,7 @@ pub(super) fn annotate(
     let chapter = Chapter {
         source,
         tokenizer,
+        ignored_words,
         override_existing,
     };
     let mut edits = Vec::new();
@@ -111,6 +113,7 @@ pub(super) fn annotate(
 struct Chapter<'a> {
     source: &'a str,
     tokenizer: &'a Tokenizer<'a>,
+    ignored_words: &'a HashSet<String>,
     override_existing: bool,
 }
 
@@ -234,8 +237,14 @@ impl Chapter<'_> {
                 if start < cursor || start >= end || morpheme.is_oov() {
                     continue;
                 }
+                let surface = &chunk[start..end];
+                if self.ignored_words.contains(surface)
+                    || self.ignored_words.contains(morpheme.dictionary_form())
+                {
+                    continue;
+                }
                 let reading = hiragana(morpheme.reading_form());
-                if let Some(parts) = kanji_readings(&chunk[start..end], &reading) {
+                if let Some(parts) = kanji_readings(surface, &reading) {
                     for (range, reading) in parts {
                         let base = &chunk[start + range.start..start + range.end];
                         escape_text(&chunk[cursor..start + range.start], &mut output);
@@ -271,10 +280,6 @@ fn is_generated_ruby(node: Node<'_, '_>) -> bool {
                 .split_ascii_whitespace()
                 .any(|class| class == RUBY_CLASS)
         })
-}
-
-fn is_kanji(ch: char) -> bool {
-    ch.script() == Script::Han
 }
 
 fn hiragana(text: &str) -> String {

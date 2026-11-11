@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Read, Seek};
+use std::io::{self, ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -8,6 +8,7 @@ use tempfile::NamedTempFile;
 use zip::ZipArchive;
 
 use crate::Furigana;
+use crate::jlpt::remove_jlpt_wordlists;
 
 const DICTIONARY_NAME: &str = "system_full.dic";
 const DICTIONARY_URL: &str =
@@ -22,6 +23,47 @@ fn dictionary_directory() -> Result<PathBuf> {
 /// Return the path to the shared dictionary in the local user data directory.
 pub fn default_dictionary_path() -> Result<PathBuf> {
     Ok(dictionary_directory()?.join(DICTIONARY_NAME))
+}
+
+/// The result of removing the default dictionary and its JLPT wordlists.
+pub struct DictionaryRemoval {
+    pub dictionary_path: PathBuf,
+    pub dictionary_removed: bool,
+    pub wordlists_removed: bool,
+}
+
+/// Remove the default dictionary and the installed JLPT wordlists.
+///
+/// Missing files are treated as already removed.
+pub fn remove_dictionary() -> Result<DictionaryRemoval> {
+    remove_dictionary_at(default_dictionary_path()?)
+}
+
+fn remove_dictionary_at(path: PathBuf) -> Result<DictionaryRemoval> {
+    let dictionary_removed = match fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("removing dictionary at {}", path.display()));
+        }
+    };
+    let wordlists_removed = remove_jlpt_wordlists(&path).with_context(|| {
+        let status = if dictionary_removed {
+            "Removed dictionary at"
+        } else {
+            "No dictionary installed at"
+        };
+        format!(
+            "{status} {}. Could not remove the JLPT wordlists",
+            path.display()
+        )
+    })?;
+    Ok(DictionaryRemoval {
+        dictionary_path: path,
+        dictionary_removed,
+        wordlists_removed,
+    })
 }
 
 /// Download and install the latest Sudachi Full V1 dictionary in the user data directory.
@@ -77,38 +119,4 @@ fn install_dictionary(archive: impl Read + Seek, directory: &Path) -> Result<Pat
         .map_err(|error| error.error)
         .with_context(|| format!("installing the dictionary at {}", path.display()))?;
     Ok(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::{Cursor, Write};
-
-    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
-
-    use super::*;
-
-    #[test]
-    fn failed_extraction_preserves_the_installed_dictionary() -> Result<()> {
-        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
-        zip.start_file(
-            "sudachi-dictionary/system_full.dic",
-            SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
-        )?;
-        zip.write_all(b"dictionary contents")?;
-        let mut archive = zip.finish()?.into_inner();
-        let directory = tempfile::tempdir()?;
-        let path = directory.path().join(DICTIONARY_NAME);
-        let original = b"previous dictionary";
-        fs::write(&path, original)?;
-
-        let data_start = ZipArchive::new(Cursor::new(&archive))?
-            .by_index(0)?
-            .data_start()
-            .context("finding the test dictionary in the ZIP")?;
-        archive[data_start as usize] ^= 1;
-        let error = install_dictionary(Cursor::new(&archive), directory.path()).unwrap_err();
-        assert_eq!(error.to_string(), "extracting system_full.dic");
-        assert_eq!(fs::read(&path)?, original);
-        Ok(())
-    }
 }

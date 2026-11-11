@@ -15,14 +15,18 @@
 //! ```
 
 mod dictionary;
+mod jlpt;
 mod xhtml;
 
-pub use dictionary::{default_dictionary_path, download_dictionary};
+pub use dictionary::{
+    DictionaryRemoval, default_dictionary_path, download_dictionary, remove_dictionary,
+};
+pub use jlpt::{default_wordlists_directory, download_jlpt_wordlists, remove_jlpt_wordlists};
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use percent_encoding::percent_decode_str;
@@ -31,6 +35,7 @@ use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
 use sudachi::config::Config;
 use sudachi::dic::dictionary::JapaneseDictionary;
 use sudachi::dic::storage::{Storage, SudachiDicData};
+use unicode_script::{Script, UnicodeScript};
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
@@ -39,6 +44,10 @@ const OCF: &str = "urn:oasis:names:tc:opendocument:xmlns:container";
 const OPF: &str = "http://www.idpf.org/2007/opf";
 const DC: &str = "http://purl.org/dc/elements/1.1/";
 const NCX: &str = "http://www.daisy.org/z3986/2005/ncx/";
+
+fn is_kanji(ch: char) -> bool {
+    ch.script() == Script::Han
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options<'a> {
@@ -52,6 +61,11 @@ pub struct Options<'a> {
     pub new_identifier: bool,
     /// Set the primary Dublin Core identifier to this value, taking precedence over UUID generation.
     pub identifier: Option<&'a str>,
+    /// Paths to UTF-8 wordlists with one word per line.
+    ///
+    /// Skip tokens whose written or dictionary form appears in any list.
+    /// Publisher ruby containing a skipped token is preserved even when overriding.
+    pub ignore_wordlists: &'a [PathBuf],
 }
 
 /// A reusable EPUB converter with a loaded Sudachi dictionary.
@@ -106,6 +120,7 @@ impl Furigana {
             "EPUB container lists no package document"
         );
 
+        let ignored_words = read_ignored_words(options.ignore_wordlists)?;
         let tokenizer = StatelessTokenizer::new(&self.dictionary);
         let generated_identifier = (options.identifier.is_none() && options.new_identifier)
             .then(|| format!("urn:uuid:{}", Uuid::new_v4()));
@@ -161,6 +176,7 @@ impl Furigana {
                     None => xhtml::annotate(
                         &source,
                         &tokenizer,
+                        &ignored_words,
                         options.override_existing,
                         highlight.as_deref(),
                     ),
@@ -200,6 +216,22 @@ impl Furigana {
 
         Ok(output.finish()?.into_inner())
     }
+}
+
+fn read_ignored_words(paths: &[PathBuf]) -> Result<HashSet<String>> {
+    let mut words = HashSet::new();
+    for path in paths {
+        let list = std::fs::read_to_string(path)
+            .with_context(|| format!("reading wordlist {}", path.display()))?;
+        words.extend(
+            list.trim_start_matches('\u{feff}')
+                .lines()
+                .map(str::trim)
+                .filter(|word| !word.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    Ok(words)
 }
 
 fn read_entry(archive: &mut ZipArchive<Cursor<&[u8]>>, path: &str) -> Result<String> {
