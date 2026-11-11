@@ -1,0 +1,147 @@
+name: Release GUI
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gui-release-${{ github.ref }}
+
+jobs:
+  build:
+    name: Build GUI for ${{ matrix.platform }} ${{ matrix.arch }}
+    if: ${{ !github.event.deleted }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            arch: x64
+            runner: ubuntu-26.04
+            target: x86_64-unknown-linux-gnu
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-26.04-arm
+            target: aarch64-unknown-linux-gnu
+          - platform: macos
+            arch: x64
+            runner: macos-26-intel
+            target: x86_64-apple-darwin
+          - platform: macos
+            arch: arm64
+            runner: macos-26
+            target: aarch64-apple-darwin
+          - platform: windows
+            arch: x64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+          - platform: windows
+            arch: arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    env:
+      RUST_VERSION: "1.99.1"
+      RUST_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+      ASSET_NAME: furigana4epub-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang pkgconf \
+            libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libvulkan1
+
+      - name: Install Rust
+        run: rustup toolchain install ${{ env.RUST_VERSION }} --profile minimal --target ${{ matrix.target }}
+
+      - name: Build GUI
+        run: cargo +${{ env.RUST_VERSION }} build --locked --release --package gui --target ${{ matrix.target }}
+
+      - name: Package Linux and macOS executables
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist
+          install -m 755 "target/$RUST_TARGET/release/gui" dist/furigana4epub
+          tar -czf "dist/$ASSET_NAME.tar.gz" -C dist furigana4epub
+
+      - name: Package Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist, package -Force | Out-Null
+          Copy-Item "target/$env:RUST_TARGET/release/gui.exe" package/furigana4epub.exe
+          Compress-Archive -LiteralPath package/furigana4epub.exe -DestinationPath "dist/${env:ASSET_NAME}.zip"
+
+      - name: Upload GUI archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: dist/${{ env.ASSET_NAME }}.*
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  release:
+    name: Publish GUI release
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download GUI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: furigana4epub-${{ github.ref_name }}-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish archives to GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          assets=(dist/furigana4epub-"$GITHUB_REF_NAME"-*)
+          if [[ ${#assets[@]} -ne 6 ]]; then
+            echo "Expected six GUI archives, found ${#assets[@]}." >&2
+            exit 1
+          fi
+
+          prerelease=false
+          if [[ $GITHUB_REF_NAME == *-* ]]; then
+            prerelease=true
+          fi
+
+          if release=$(gh release view "$GITHUB_REF_NAME" --json isDraft,assets); then
+            uploaded=$(jq -r '.assets[] | select(.state == "uploaded") | .name' <<< "$release")
+            for asset in "${assets[@]}"; do
+              if ! grep -Fxq -- "${asset##*/}" <<< "$uploaded"; then
+                # A failed upload can leave an incomplete asset with the same name.
+                gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
+              fi
+            done
+            if [[ $(jq -r '.isDraft' <<< "$release") == true ]]; then
+              gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease="$prerelease"
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --generate-notes --prerelease="$prerelease"
+          fi

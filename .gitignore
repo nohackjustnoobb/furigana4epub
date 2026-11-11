@@ -1,0 +1,9 @@
+/target
+
+**.epub
+!/core/tests/fixtures/japanese.epub
+
+/system_full.dic
+
+
+.DS_Store
