@@ -2,6 +2,30 @@
 
 Add hiragana furigana to Japanese EPUB 3 books using Sudachi.
 
+## GUI usage
+
+Launch the app and click **Update Dictionary** to download or refresh the shared dictionary. Choose an EPUB and set your options. Click **Convert EPUB**, then choose where to save the converted book.
+
+### Download from GitHub Releases
+
+Open the [latest release](https://github.com/nohackjustnoobb/furigana4epub/releases/latest). Under **Assets**, choose the archive for your operating system and processor (`x64` or `arm64`). Extract the archive.
+
+- **macOS**. Double-click the extracted `furigana4epub` executable in Finder. If macOS blocks the first launch, go to **System Settings → Privacy & Security**, scroll down to **Security**, click **Open Anyway**, and confirm the prompt ([Apple Support instructions](https://support.apple.com/en-us/102445)). After that, you can double-click it as usual. You can also run `./furigana4epub` from the extracted folder in Terminal.
+- **Linux**. Run `./furigana4epub` from the extracted folder in your terminal.
+- **Windows**. Open `furigana4epub.exe`.
+
+### Run or build from source
+
+Use Rust 1.98 or newer and install the [GPUI Kit prerequisites for your operating system](https://gpui-kit.com/docs/installation/#platform-requirements).
+
+Run the GUI from the repository root.
+
+```sh
+cargo run --locked -p gui
+```
+
+To build the executable, run `cargo build --release --locked -p gui`. Find it at `target/release/gui` (`target/release/gui.exe` on Windows).
+
 ## CLI usage
 
 Install the CLI from the repository root, then download the Sudachi Full V1 dictionary and convert a book.
@@ -44,27 +68,3 @@ To remove the shared dictionary, run `furigana4epub remove-dict`. From the repos
 | `-h`, `--help`            | Show command-line help.                                                                              |
 
 The original identifier is preserved by default. Changing it requires an EPUB without encrypted or obfuscated resources.
-
-## GUI usage
-
-Launch the app and click **Update Dictionary** to download or refresh the shared dictionary. Choose an EPUB and set your options. Click **Convert EPUB**, then choose where to save the converted book.
-
-### Download from GitHub Releases
-
-Open the [latest release](https://github.com/nohackjustnoobb/furigana4epub/releases/latest). Under **Assets**, choose the archive for your operating system and processor (`x64` or `arm64`). Extract the archive. On macOS and Linux, run `./furigana4epub` from the extracted folder in your terminal. On Windows, open `furigana4epub.exe`.
-
-Alpha, beta, and RC builds are listed under [all releases](https://github.com/nohackjustnoobb/furigana4epub/releases).
-
-Linux builds use Ubuntu 26.04 and require compatible glibc and desktop libraries, plus a working Vulkan driver.
-
-### Run or build from source
-
-Use Rust 1.98 or newer and install the [GPUI Kit prerequisites for your operating system](https://gpui-kit.com/docs/installation/#platform-requirements).
-
-Run the GUI from the repository root.
-
-```sh
-cargo run --locked -p gui
-```
-
-To build the executable, run `cargo build --release --locked -p gui`. Find it at `target/release/gui` (`target/release/gui.exe` on Windows).
