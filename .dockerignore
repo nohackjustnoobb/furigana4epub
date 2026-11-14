@@ -1,0 +1,13 @@
+**
+!Cargo.toml
+!Cargo.lock
+!api/
+!api/**
+!cli/
+!cli/**
+!core/
+!core/**
+!gui/
+!gui/**
+**/target
+**/.DS_Store

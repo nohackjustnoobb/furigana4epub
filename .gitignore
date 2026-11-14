@@ -1,4 +1,6 @@
 /target
+/.furigana4epub-api/
+/data
 
 **.epub
 !/core/tests/fixtures/japanese.epub

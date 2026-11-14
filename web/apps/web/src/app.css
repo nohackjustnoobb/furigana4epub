@@ -1,0 +1,45 @@
+@import "@workspace/ui/globals.css";
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-preview: var(--preview);
+  --color-preview-line: var(--preview-line);
+}
+
+:root {
+  --background: #f8f7fb;
+  --foreground: #211b32;
+  --card-foreground: #211b32;
+  --muted-foreground: #625b71;
+  --border: #e6e1ee;
+  --input: #d8d0e5;
+  --ring: #7858c6;
+  --brand: #5638ad;
+  --brand-foreground: #fff;
+  --preview: #f1ecfa;
+  --preview-line: #ded3f1;
+}
+
+.dark {
+  --background: #1a1623;
+  --foreground: #f1edf8;
+  --card: #241d30;
+  --card-foreground: #f1edf8;
+  --muted-foreground: #bdb3cd;
+  --border: #3c3249;
+  --input: #504460;
+  --ring: #b599fc;
+  --brand: #c4adff;
+  --brand-foreground: #251641;
+  --preview: #2a203a;
+  --preview-line: #473659;
+}
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}

@@ -16,12 +16,14 @@
 
 mod dictionary;
 mod jlpt;
+mod wordlists;
 mod xhtml;
 
 pub use dictionary::{
     DictionaryRemoval, default_dictionary_path, download_dictionary, remove_dictionary,
 };
 pub use jlpt::{default_wordlists_directory, download_jlpt_wordlists, remove_jlpt_wordlists};
+pub use wordlists::discover_wordlists;
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
