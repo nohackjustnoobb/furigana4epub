@@ -2,7 +2,11 @@
 
 Add hiragana furigana to Japanese EPUB 3 books using Sudachi.
 
+Use furigana4epub in four ways through the [web converter](#web-usage), [desktop GUI](#gui-usage), [command line](#cli-usage), or [API](#api-usage).
+
 ## Web usage
+
+The web converter relies on the hosted API server. Web conversion may be unavailable when the server is down.
 
 Open the [web converter](https://nohackjustnoobb.github.io/furigana4epub/), choose a Japanese EPUB, and click **Add furigana**. When conversion finishes, click **Download EPUB**.
 
@@ -10,29 +14,23 @@ Open the [web converter](https://nohackjustnoobb.github.io/furigana4epub/), choo
 
 ## GUI usage
 
-Launch the app and click **Update Dictionary** to download or refresh the shared dictionary and JLPT wordlists. Choose an EPUB and set your options. Click **Convert EPUB**, then choose where to save the converted book.
+Download the archive for your system from the [latest release](https://github.com/nohackjustnoobb/furigana4epub/releases/latest), extract it, and open the app. On first launch, click **Update Dictionary**. Choose a Japanese EPUB, click **Convert EPUB**, and choose where to save it.
 
-Under **Ignored wordlists**, check the shared wordlists you want to use, or click **Add wordlist files…** to select custom files. The converter skips adding furigana to words in the checked lists.
+**macOS**. Choose `arm64` for Apple silicon or `x64` for Intel, then double-click the extracted `furigana4epub` file. If macOS says it can’t verify the developer, go to **System Settings → Privacy & Security**, click **Open Anyway**, and confirm. [Apple Support](https://support.apple.com/en-us/102445)
 
-### Download from GitHub Releases
+![Desktop converter in dark mode with an EPUB selected, showing conversion options and JLPT wordlists](docs/images/gui-converter.png)
 
-Open the [latest release](https://github.com/nohackjustnoobb/furigana4epub/releases/latest). Under **Assets**, choose the archive for your operating system and processor (`x64` or `arm64`). Extract the archive.
+### Build from source
 
-- **macOS**. Double-click the extracted `furigana4epub` executable in Finder. If macOS blocks the first launch, go to **System Settings → Privacy & Security**, scroll down to **Security**, click **Open Anyway**, and confirm the prompt ([Apple Support instructions](https://support.apple.com/en-us/102445)). After that, you can double-click it as usual. You can also run `./furigana4epub` from the extracted folder in Terminal.
-- **Linux**. Run `./furigana4epub` from the extracted folder in your terminal.
-- **Windows**. Open `furigana4epub.exe`.
+Install Rust 1.99.1 and the prerequisites for your operating system. [GPUI Kit platform requirements](https://gpui-kit.com/docs/installation/#platform-requirements)
 
-### Run or build from source
-
-Use Rust 1.98 or newer and install the [GPUI Kit prerequisites for your operating system](https://gpui-kit.com/docs/installation/#platform-requirements).
-
-Run the GUI from the repository root.
+From the repository root, build the GUI with Cargo.
 
 ```sh
-cargo run --locked -p gui
+cargo build --release --locked -p gui
 ```
 
-To build the executable, run `cargo build --release --locked -p gui`. Find it at `target/release/gui` (`target/release/gui.exe` on Windows).
+Open `target/release/gui` (`target/release/gui.exe` on Windows), or run `cargo run --locked -p gui` to build and launch in one step.
 
 ## CLI usage
 
@@ -86,6 +84,8 @@ The original identifier is preserved by default. Changing it requires an EPUB wi
 
 ## API usage
 
+The hosted API may be temporarily unavailable. [Hosted API server](https://furigana4epub.travisxu.dev)
+
 | Request                   | Result                                                                                           |
 | ------------------------- | ------------------------------------------------------------------------------------------------ |
 | `POST /jobs`              | Create a job with `filename`, optional `size_bytes`, and optional `options`. Returns the job ID. |
@@ -96,26 +96,27 @@ The original identifier is preserved by default. Changing it requires an EPUB wi
 | `GET /wordlists`          | List the available wordlist IDs.                                                                 |
 
 ```sh
-curl -fsS http://localhost:8080/jobs \
+API_URL='https://furigana4epub.travisxu.dev'
+curl -fsS "$API_URL/jobs" \
   -H 'Content-Type: application/json' \
   -d '{"filename":"book.epub","options":{"highlight_color":"#2563eb","ignore_wordlists":["jlpt/N1.txt"]}}'
 
 # Set JOB_ID to the id from the response.
 # Optional. Upload a UTF-8 text file with one word per line.
 curl -fsS -T words.txt -H 'Content-Type: text/plain; charset=utf-8' \
-  "http://localhost:8080/jobs/$JOB_ID/wordlist"
+  "$API_URL/jobs/$JOB_ID/wordlist"
 curl -fsS -T book.epub -H 'Content-Type: application/epub+zip' \
-  "http://localhost:8080/jobs/$JOB_ID/upload"
+  "$API_URL/jobs/$JOB_ID/upload"
 # Repeat until the status is finished or failed.
-curl -fsS "http://localhost:8080/jobs/$JOB_ID"
-curl -fsS -o book.furigana.epub "http://localhost:8080/jobs/$JOB_ID/download"
+curl -fsS "$API_URL/jobs/$JOB_ID"
+curl -fsS -o book.furigana.epub "$API_URL/jobs/$JOB_ID/download"
 ```
 
 Job options are `override_existing`, `highlight_injected`, `highlight_color`, `new_identifier`, `identifier`, and `ignore_wordlists`. Use IDs from `GET /wordlists` in `ignore_wordlists`. If provided, `size_bytes` must match the upload exactly.
 
 An uploaded wordlist applies to that job alongside any installed lists selected in `ignore_wordlists`.
 
-## Self-hosting
+### Self-hosting
 
 From the repository root, start the API with Docker Compose.
 
@@ -123,7 +124,7 @@ From the repository root, start the API with Docker Compose.
 docker compose up --build -d
 ```
 
-The API is available at `http://localhost:8080`. SQLite and EPUB files are stored in `data/`.
+Set `API_URL` to `http://localhost:8080` to run the examples against your local API. SQLite and EPUB files are stored in `data/`.
 
 ## Data sources and licenses
 

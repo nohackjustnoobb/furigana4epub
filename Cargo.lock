@@ -2788,6 +2788,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "core",
+ "dirs 6.0.0",
  "gpui-kit",
  "tempfile",
 ]

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+dirs = "6.0.0"
 furigana4epub_core = { version = "0.1.0", path = "../core", package = "core" }
 gpui-kit = "0.9.1"
 tempfile = "3.27.0"

@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod book;
+mod theme;
 mod wordlists;
 
 use std::path::{Path, PathBuf};
@@ -9,17 +10,20 @@ use std::sync::Arc;
 use anyhow::{Context as _, ensure};
 use furigana4epub_core::{Options, download_dictionary, download_jlpt_wordlists};
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon,
+    ActiveTheme, Disableable, Icon, WindowExt as _,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputState},
+    menu::{DropdownMenu as _, PopupMenuItem},
+    notification::Notification,
     radio::RadioGroup,
     scroll::ScrollableElement as _,
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use theme::ThemePreference;
 use wordlists::Wordlists;
 
 #[derive(Default)]
@@ -63,6 +67,7 @@ impl Identifier {
 }
 
 struct Converter {
+    theme_preference: ThemePreference,
     input: Option<PathBuf>,
     override_existing: bool,
     highlight: bool,
@@ -76,7 +81,17 @@ struct Converter {
 
 impl Converter {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let theme_preference = ThemePreference::load();
+        theme_preference.apply(window, cx);
+        cx.observe_window_appearance(window, |view, window, cx| {
+            if view.theme_preference == ThemePreference::System {
+                view.theme_preference.apply(window, cx);
+            }
+        })
+        .detach();
+
         let mut converter = Self {
+            theme_preference,
             input: None,
             override_existing: false,
             highlight: false,
@@ -321,6 +336,48 @@ impl Converter {
 
     fn fail(&mut self, error: anyhow::Error) {
         self.status = Status::Failed(format!("{error:#}"));
+    }
+
+    fn set_theme(
+        &mut self,
+        preference: ThemePreference,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_preference = preference;
+        preference.apply(window, cx);
+        if let Err(error) = preference.save() {
+            window.push_notification(
+                Notification::error(format!("Could not save the theme preference. {error}")),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    fn theme_menu(&self, cx: &Context<Self>) -> impl IntoElement {
+        let current = self.theme_preference;
+        let view = cx.weak_entity();
+        Button::new("theme")
+            .outline()
+            .label("Theme")
+            .dropdown_caret(true)
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                let mut menu = menu;
+                for choice in ThemePreference::CHOICES {
+                    let view = view.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(choice.label())
+                            .checked(choice == current)
+                            .on_click(move |_, window, cx| {
+                                let _ = view.update(cx, |view, cx| {
+                                    view.set_theme(choice, window, cx);
+                                });
+                            }),
+                    );
+                }
+                menu
+            })
     }
 
     fn book_picker(&self, panel: Div, cx: &Context<Self>) -> impl IntoElement {
@@ -617,6 +674,7 @@ impl Render for Converter {
                             .child(
                                 v_flex()
                                     .gap_1()
+                                    .min_w_0()
                                     .child(
                                         div()
                                             .text_3xl()
@@ -631,13 +689,22 @@ impl Render for Converter {
                                     ),
                             )
                             .child(
-                                Button::new("update-dictionary")
-                                    .outline()
-                                    .label("Update Dictionary")
-                                    .loading(matches!(self.status, Status::UpdatingDictionary))
-                                    .disabled(self.status.busy())
-                                    .on_click(
-                                        cx.listener(|view, _, _, cx| view.update_dictionary(cx)),
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .gap_2()
+                                    .child(self.theme_menu(cx))
+                                    .child(
+                                        Button::new("update-dictionary")
+                                            .outline()
+                                            .label("Update Dictionary")
+                                            .loading(matches!(
+                                                self.status,
+                                                Status::UpdatingDictionary
+                                            ))
+                                            .disabled(self.status.busy())
+                                            .on_click(cx.listener(|view, _, _, cx| {
+                                                view.update_dictionary(cx)
+                                            })),
                                     ),
                             ),
                     )
